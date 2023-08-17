@@ -53,6 +53,7 @@ always @(posedge clk_i) begin
             A_s <= payload_data[num*2+0];
             B_s <= payload_data[num*2+1];
             num = num + 1;
+            //$display("res_o:", res_o);
         end
         if(num >= NUM) begin
             num = 0;
