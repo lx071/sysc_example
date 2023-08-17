@@ -6,184 +6,136 @@
 // SPDX-License-Identifier: CC0-1.0
 //======================================================================
 
+// For std::unique_ptr
+#include <memory>
+
 // SystemC global header
-#include <systemc.h>
+#include <systemc>
 
 // Include common routines
 #include <verilated.h>
-
-// Include model header, generated from Verilating "top.v"
-#include "Vwrapper.h"
-
-#include <tlm.h>
-#include <tlm_utils/simple_initiator_socket.h>
-#include <tlm_utils/simple_target_socket.h>
-
 #if VM_TRACE
 #include <verilated_vcd_sc.h>
 #endif
 
-#include <iostream>
+#include <sys/stat.h>  // mkdir
 
+// Include model header, generated from Verilating "top.v"
+#include "Vtop.h"
 
-SC_MODULE(TLMTrafficGenerator)
-{
-	tlm_utils::simple_initiator_socket<TLMTrafficGenerator> socket;
-
-	TLMTrafficGenerator(sc_module_name name, int numThreads = 1) :
-		m_debug(false),
-		m_startDelay(SC_ZERO_TIME)
-	{
-		int i;
-
-		// SC_THREAD(run);
-	}
-
-private:
-    bool m_debug;
-	sc_time m_startDelay;
-
-    void run()
-	{
-		wait(m_startDelay);
-        // sc_core::wait(resetn.negedge_event());
-		//...
-	}
-    
-};
-
-SC_MODULE(Top)
-{
-    int num_;
-	//sc_clock clk;
-	sc_signal<bool> rst_n; // Active low.
-    sc_signal<bool> tvalid;
-    sc_signal<bool> xmit_en;
-
-    int xmit_en_old;
-
-    sc_signal<uint32_t> res_o;
-    sc_signal<uint32_t> *payload_data;
-
-    TLMTrafficGenerator tg;
-
-    // Vwrapper dut;
-    const std::unique_ptr<Vwrapper> dut{new Vwrapper{"dut"}};
-    
-	tlm_utils::simple_target_socket<Top> target_socket;
-
-	Top(sc_module_name name, int num) :
-        sc_module(name),
-        num_(num),
-		// clk("clk", sc_time(1, SC_US)),
-        res_o("res_o"),
-		tg("traffic_generator")
-		// dut("dut")
-
-	{
-        payload_data = new sc_signal<uint32_t>[num_*2];
-
-		target_socket.register_b_transport(this, &Top::b_transport);
-        tg.socket.bind(target_socket);
-
-        dut->res_o(res_o);
-        dut->tvalid(tvalid);
-        dut->xmit_en(xmit_en);
-
-        for (int i = 0; i < num_*2; i++) {
-            dut->payload_data[i](payload_data[i]);
-        }   
-        sc_start(SC_ZERO_TIME);
-	}
-
-	virtual void b_transport(tlm::tlm_generic_payload &trans, sc_time &delay)
-	{
-        
-		// cout<<"b_transport"<<endl;
-        tlm::tlm_command cmd = trans.get_command();
-        sc_dt::uint64 addr = trans.get_address();
-        unsigned char* data = trans.get_data_ptr();
-        unsigned int len = trans.get_data_length();
-        unsigned char* byte_en = trans.get_byte_enable_ptr();
-        unsigned int wid = trans.get_streaming_width();
-
-        if (addr != 0x0) {
-            trans.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
-            return;
-        }
-
-        if (cmd == tlm::TLM_READ_COMMAND) {
-
-            trans.set_response_status(tlm::TLM_OK_RESPONSE);
-
-        } else if (cmd == tlm::TLM_WRITE_COMMAND) {
-            // payload_data[0] = 16;
-            for (int i = 0; i < num_*2; i++) {
-                payload_data[i] = data[i];
-            }
-            tvalid = 1;
-
-            xmit_en_old = xmit_en;
-
-            while(xmit_en == xmit_en_old)
-            {   
-                sc_start(1, SC_NS);
-            } 
-            xmit_en_old = xmit_en;
-            
-            trans.set_response_status(tlm::TLM_OK_RESPONSE);
-        } else {
-            trans.set_response_status(tlm::TLM_COMMAND_ERROR_RESPONSE);
-            return;
-        }
-	}
-
-    ~Top() {
-		// delete target_socket;
-        dut->final();
-        // delete dut;
-		
-	}
-};
+using namespace sc_core;
 
 int sc_main(int argc, char* argv[]) {
+    // This is a more complicated example, please also see the simpler examples/make_hello_c.
 
-    Verilated::commandArgs(argc, argv);
-	
-    #if VM_TRACE
+    // Prevent unused variable warnings
+    if (false && argc && argv) {}
+
+    // Create logs/ directory in case we have traces to put under it
+    Verilated::mkdir("logs");
+
+    // Set debug level, 0 is off, 9 is highest presently used
+    // May be overridden by commandArgs argument parsing
+    Verilated::debug(0);
+
+    // Randomization reset policy
+    // May be overridden by commandArgs argument parsing
+    Verilated::randReset(2);
+
+#if VM_TRACE
     // Before any evaluation, need to know to calculate those signals only used for tracing
-        Verilated::traceEverOn(true);
-    #endif
+    Verilated::traceEverOn(true);
+#endif
 
-    int num = 10;
-    int item_num = 200;
+    // Pass arguments so Verilated code can see them, e.g. $value$plusargs
+    // This needs to be called before you create any model
+    Verilated::commandArgs(argc, argv);
 
-    Top top("Top", item_num);
+    // General logfile
+    ios::sync_with_stdio();
 
-    tlm::tlm_generic_payload trans;
-    // sc_time delay = sc_time(10, SC_NS);
-    sc_time delay = SC_ZERO_TIME;
+    // Define clocks
+    sc_clock clk{"clk", 10, SC_NS, 0.5, 3, SC_NS, true};
+    sc_clock fastclk{"fastclk", 2, SC_NS, 0.5, 2, SC_NS, true};
 
-    unsigned char arr[item_num*2];
+    // Define interconnect
+    sc_signal<bool> reset_l;
+    sc_signal<uint32_t> in_small;
+    sc_signal<uint64_t> in_quad;
+    sc_signal<sc_bv<70>> in_wide;
+    sc_signal<uint32_t> out_small;
+    sc_signal<uint64_t> out_quad;
+    sc_signal<sc_bv<70>> out_wide;
 
-    for (int k = 0; k < num; k++)
-    {
-        for (int i = 0; i < item_num; i = i + 1) {
-            arr[i*2] = i%100;
-            arr[i*2+1] = i%100;
-        }
-        // unsigned char arr[] = {0x1, 0x2, 0x3, 0x4, 0x5};
-        unsigned char *payload_data = arr;
+    // Construct the Verilated model, from inside Vtop.h
+    // Using unique_ptr is similar to "Vtop* top = new Vtop" then deleting at end
+    const std::unique_ptr<Vtop> top{new Vtop{"top"}};
 
-        // set data
-        trans.set_command(tlm::TLM_WRITE_COMMAND);
-        trans.set_address(0x0);
-        trans.set_data_ptr(reinterpret_cast<unsigned char*>(payload_data));
-        trans.set_data_length(strlen((const char*)payload_data));
+    // Attach Vtop's signals to this upper model
+    top->clk(clk);
+    top->fastclk(fastclk);
+    top->reset_l(reset_l);
+    top->in_small(in_small);
+    top->in_quad(in_quad);
+    top->in_wide(in_wide);
+    top->out_small(out_small);
+    top->out_quad(out_quad);
+    top->out_wide(out_wide);
 
-        top.tg.socket->b_transport(trans, delay);
+    // You must do one evaluation before enabling waves, in order to allow
+    // SystemC to interconnect everything for testing.
+    sc_start(SC_ZERO_TIME);
 
+#if VM_TRACE
+    // If verilator was invoked with --trace argument,
+    // and if at run time passed the +trace argument, turn on tracing
+    VerilatedVcdSc* tfp = nullptr;
+    const char* flag = Verilated::commandArgsPlusMatch("trace");
+    if (flag && 0 == std::strcmp(flag, "+trace")) {
+        std::cout << "Enabling waves into logs/vlt_dump.vcd...\n";
+        tfp = new VerilatedVcdSc;
+        top->trace(tfp, 99);  // Trace 99 levels of hierarchy
+        Verilated::mkdir("logs");
+        tfp->open("logs/vlt_dump.vcd");
     }
+#endif
+
+    // Simulate until $finish
+    while (!Verilated::gotFinish()) {
+#if VM_TRACE
+        // Flush the wave files each cycle so we can immediately see the output
+        // Don't do this in "real" programs, do it in an abort() handler instead
+        if (tfp) tfp->flush();
+#endif
+
+        // Apply inputs
+        if (sc_time_stamp() > sc_time(1, SC_NS) && sc_time_stamp() < sc_time(10, SC_NS)) {
+            reset_l = !1;  // Assert reset
+        } else {
+            reset_l = !0;  // Deassert reset
+        }
+
+        // Simulate 1ns
+        sc_start(1, SC_NS);
+    }
+
+    // Final model cleanup
+    top->final();
+
+    // Close trace if opened
+#if VM_TRACE
+    if (tfp) {
+        tfp->close();
+        tfp = nullptr;
+    }
+#endif
+
+    // Coverage analysis (calling write only after the test is known to pass)
+#if VM_COVERAGE
+    Verilated::mkdir("logs");
+    VerilatedCov::write("logs/coverage.dat");
+#endif
+
     // Return good completion status
     return 0;
 }
