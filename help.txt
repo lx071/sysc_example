@@ -1,3 +1,23 @@
+SystemC
+The language for System-level design, modeling and verification
+SystemC is a single, unified design and verification language that expresses architectural and other system-level attributes in the form of open-source C++ classes. 
+It enables design and verification at the system level, independent of any detailed hardware and software implementation, as well as enabling co-verification with RTL design. 
+This higher level of abstraction enables considerably faster, more productive architectural trade-off analysis, design, and redesign than is possible at the more detailed RT level. 
+Furthermore, verification of system architecture and other system-level attributes is orders of magnitude faster than that at the pin-accurate, timing-accurate RT level.
+
+
+The SystemC library contains a simulation kernel. 
+This decides which processes (software threads) to run. 
+At time 0, all SC_METHODs and SC_THREADs will run in an undefined order, until they suspend. 
+Then SC_CTHREADs will run when a clock edge occurs.
+
+·A thread is a function made to act like a hardware process
+·SystemC supports three kinds of threads
+    ·SC_METHOD()          ·Analogous to a Verilog @always block   ·Synthesizable      ·Limited to one cycle
+    ·SC_THREAD()          ·Similar to a Verilog @initial block    ·NOT Synthesizable
+    ·SC_CTHREAD()         ·References a clock edge                ·Synthesizable      ·Not limited to one cycle
+
+
 1. cd ~/Downloads/
 2. tar -zxvf systemc-2.3.4.tar.gz
 3. cd systemc-2.3.4
