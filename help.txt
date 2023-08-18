@@ -17,6 +17,8 @@ Then SC_CTHREADs will run when a clock edge occurs.
     ·SC_THREAD()          ·Similar to a Verilog @initial block    ·NOT Synthesizable
     ·SC_CTHREAD()         ·References a clock edge                ·Synthesizable      ·Not limited to one cycle
 
+sc_signal is an example of a primitive channel, a built-in channel within the SystemC class library. It behaves like a signal in VHDL.
+
 
 1. cd ~/Downloads/
 2. tar -zxvf systemc-2.3.4.tar.gz
