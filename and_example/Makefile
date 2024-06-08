@@ -1,11 +1,15 @@
-all: compile
+src = tb.cpp and.cpp
+INCLUDE_FLAGS = -I /usr/local/systemc-2.3.4/include
+LDFLAGS = -L /usr/local/systemc-2.3.4/lib-linux64 -l systemc
 
-compile:
-	g++ -o and tb.cpp and.cpp -I /usr/local/systemc-2.3.4/include -L /usr/local/systemc-2.3.4/lib-linux64 -l systemc
+.PHONY: all
+all: run
 
-run:
-	./and
+main:
+	g++ -o main $(src) $(INCLUDE_FLAGS) $(LDFLAGS)
+
+run: main
+	./main
 
 clean:
-	rm -rf and *.vcd
-
+	rm -rf main *.vcd
